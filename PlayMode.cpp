@@ -68,14 +68,12 @@ PlayMode::PlayMode() :
 			CarrotPath(glm::vec3(), glm::vec3())   // right CarrotPath
 		} 
 {
-	// reserve enough space for carrots
-	in_action_carrots.reserve(max_carrots);
-	idle_carrots.reserve(max_carrots);
 
+	// cache objects handles
 	for (auto &transform : scene.transforms) {
 		// get pointer to carrot
 		if (transform.name.substr(0, 7) == "CarrotP") {
-			idle_carrots.emplace_back(Carrot{&transform});
+			idle_carrots.push(Carrot{&transform});
 		}
 		// get pointer to hamster
 		else if (transform.name == "Hamster") {
@@ -102,33 +100,33 @@ PlayMode::PlayMode() :
 		}
 	}
 
-	// check that all needed transforms are imported correctly
-	if (hamster == nullptr) throw std::runtime_error("Hamster not found.");
-	if (idle_carrots.size() != 24) throw std::runtime_error("Base carrot not found.");
-	std::string path_names[3] = {"left", "middle", "right"};
-	for (uint8_t i = 0; i < carrot_paths.size(); ++i) {
-		if (carrot_paths[i].start_pos == glm::vec3(0) || carrot_paths[i].end_pos == glm::vec3(0)) {
-			throw std::runtime_error("The " + path_names[i] + " path coordinates not complete.");
+	{// check that all needed transforms are imported correctly
+		if (hamster == nullptr) throw std::runtime_error("Hamster not found.");
+		if (idle_carrots.size() != 24) throw std::runtime_error("Base carrot not found.");
+		std::string path_names[3] = {"left", "middle", "right"};
+		for (uint8_t i = 0; i < carrot_paths.size(); ++i) {
+			if (carrot_paths[i].start_pos == glm::vec3(0) || carrot_paths[i].end_pos == glm::vec3(0)) {
+				throw std::runtime_error("The " + path_names[i] + " path coordinates not complete.");
+			}
+			// set the end position z to same as start z, z dragged down in the scene to prevent rendering:
+			carrot_paths[i].end_pos.z = carrot_paths[i].start_pos.z;
 		}
-		// set the end position z to same as start z, z dragged down in the scene to prevent rendering:
-		carrot_paths[i].end_pos.z = carrot_paths[i].start_pos.z;
 	}
 
 	//cache hamster location
 	hamster_pos = hamster->position;
 
-	//precompute hamster rotations
-	hamster_rotations[2] = glm::angleAxis(
-		glm::radians(45.0f),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-
-	hamster_rotations[0] = glm::angleAxis(
-		glm::radians(-45.0f),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-
-	hamster->rotation = hamster_rotations[0];
+	{//precompute hamster rotations
+		hamster_rotations[0] = glm::angleAxis(
+			glm::radians(-45.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		hamster_rotations[1] = hamster->rotation;
+		hamster_rotations[2] = glm::angleAxis(
+			glm::radians(45.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+	}
 
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
@@ -196,36 +194,18 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 
 void PlayMode::update(float elapsed) {
 
-	spawn_interval += elapsed;
-	if (spawn_interval >= 1.0f) {
-		spawn_interval -= 1.0f;
-		std::cout<<"Camera Pos:" <<camera->transform->position.x << ", " << camera->transform->position.y << ", "<<camera->transform->position.z <<std::endl;
-		std::cout<<"sound Pos:" <<sound_locations[index].x << ", " << sound_locations[index].y << ", "<<sound_locations[index].z <<std::endl;
+	since_carrot_spawned += elapsed;
+	if (since_carrot_spawned >= carrot_spawn_timer && idle_carrots.empty()) {
+		since_carrot_spawned = std::fmod(since_carrot_spawned, carrot_spawn_timer);
+		Carrot new_carrot = idle_carrots.front();
+		idle_carrots.pop();
+		in_action_carrots.push(new_carrot);
+
 		Sound::play_3D(*(spawn_sounds[index]), 1.0f, sound_locations[index], 2000.0f);
 		index = (index + 1) %3;
 	}
 
-	// //move camera:
-	// {
 
-	// 	//combine inputs into a move:
-	// 	constexpr float PlayerSpeed = 30.0f;
-	// 	glm::vec2 move = glm::vec2(0.0f);
-	// 	if (left.pressed && !right.pressed) move.x =-1.0f;
-	// 	if (!left.pressed && right.pressed) move.x = 1.0f;
-	// 	if (down.pressed && !up.pressed) move.y =-1.0f;
-	// 	if (!down.pressed && up.pressed) move.y = 1.0f;
-
-	// 	//make it so that moving diagonally doesn't go faster:
-	// 	if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
-
-	// 	glm::mat4x3 frame = camera->transform->make_local_to_parent();
-	// 	glm::vec3 frame_right = frame[0];
-	// 	//glm::vec3 up = frame[1];
-	// 	glm::vec3 frame_forward = -frame[2];
-
-	// 	camera->transform->position += move.x * frame_right + move.y * frame_forward;
-	// }
 
 	//reset button press counters:
 	left.downs = 0;

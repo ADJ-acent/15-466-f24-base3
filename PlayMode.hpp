@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>
 
-#include <vector>
+#include <queue>
 #include <array>
 
 struct PlayMode : Mode {
@@ -47,10 +47,10 @@ struct PlayMode : Mode {
 		CarrotPath* path;
 		float t = 0.0f;
 	};
-	std::vector<Carrot> in_action_carrots;
-	std::vector<Carrot> idle_carrots;
-	float spawn_interval;
-	int index = 0;
+	std::queue<Carrot> in_action_carrots;
+	std::queue<Carrot> idle_carrots;
+	float since_carrot_spawned = 0.0f;
+	float carrot_spawn_timer = 2.0f;
 
 	//hamster
 	Scene::Transform* hamster = nullptr;
