@@ -197,7 +197,7 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 void PlayMode::update(float elapsed) {
 
 	spawn_interval += elapsed;
-	if (spawn_interval >= 1,0f) {
+	if (spawn_interval >= 1.0f) {
 		spawn_interval -= 1.0f;
 		std::cout<<"Camera Pos:" <<camera->transform->position.x << ", " << camera->transform->position.y << ", "<<camera->transform->position.z <<std::endl;
 		std::cout<<"sound Pos:" <<sound_locations[index].x << ", " << sound_locations[index].y << ", "<<sound_locations[index].z <<std::endl;
