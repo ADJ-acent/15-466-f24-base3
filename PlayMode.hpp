@@ -41,7 +41,7 @@ struct PlayMode : Mode {
 	std::array<PlayMode::CarrotPath, 3> carrot_paths;
 
 	//carrots
-	float carrot_speed = 1.0f;
+	float carrot_speed = .5f;
 	const uint8_t max_carrots = 24;
 	struct Carrot {
 		Scene::Transform* transform;
