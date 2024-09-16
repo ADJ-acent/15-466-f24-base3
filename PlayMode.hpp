@@ -6,7 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <vector>
-#include <deque>
+#include <array>
 
 struct PlayMode : Mode {
 	PlayMode();
@@ -28,19 +28,37 @@ struct PlayMode : Mode {
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
 
-	//hexapod leg to wobble:
-	Scene::Transform *hip = nullptr;
-	Scene::Transform *upper_leg = nullptr;
-	Scene::Transform *lower_leg = nullptr;
-	glm::quat hip_base_rotation;
-	glm::quat upper_leg_base_rotation;
-	glm::quat lower_leg_base_rotation;
-	float wobble = 0.0f;
+	//start and end points for carrots
+	struct CarrotPath {
+		glm::vec3 start_pos;
+		glm::vec3 end_pos;
 
-	glm::vec3 get_leg_tip_position();
+		CarrotPath(glm::vec3 start, glm::vec3 end) : start_pos(start), end_pos(end) {};
+	};
 
-	//music coming from the tip of the leg (as a demonstration):
-	std::shared_ptr< Sound::PlayingSample > leg_tip_loop;
+	// 0 - left, 1 - middle, 2 - right
+	std::array<PlayMode::CarrotPath, 3> carrot_paths;
+
+	//carrots
+	const float carrot_speed = 10.0f;
+	const uint8_t max_carrots = 24;
+	struct Carrot {
+		Scene::Transform* transform;
+		CarrotPath* path;
+		float t = 0.0f;
+	};
+	std::vector<Carrot> in_action_carrots;
+	std::vector<Carrot> idle_carrots;
+	float spawn_interval;
+	int index = 0;
+
+	//hamster
+	Scene::Transform* hamster = nullptr;
+	std::array<glm::quat, 3> hamster_rotations;
+	glm::vec3 hamster_pos;
+
+	//sound locations
+	std::array<glm::vec3, 3> sound_locations;
 	
 	//camera:
 	Scene::Camera *camera = nullptr;

@@ -32,6 +32,9 @@ struct Scene {
 		glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); //n.b. wxyz init order
 		glm::vec3 scale = glm::vec3(1.0f, 1.0f, 1.0f);
 
+		//Draws when enabled
+		bool enabled = true;
+
 		//The transform above may be relative to some parent transform:
 		Transform *parent = nullptr;
 

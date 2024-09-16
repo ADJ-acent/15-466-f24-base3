@@ -12,56 +12,141 @@
 
 #include <random>
 
-GLuint hexapod_meshes_for_lit_color_texture_program = 0;
-Load< MeshBuffer > hexapod_meshes(LoadTagDefault, []() -> MeshBuffer const * {
-	MeshBuffer const *ret = new MeshBuffer(data_path("hexapod.pnct"));
-	hexapod_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
+GLuint main_meshes_for_lit_color_texture_program = 0;
+Load< MeshBuffer > main_meshes(LoadTagDefault, []() -> MeshBuffer const * {
+	MeshBuffer const *ret = new MeshBuffer(data_path("main.pnct"));
+	main_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
 	return ret;
 });
 
-Load< Scene > hexapod_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("hexapod.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
-		Mesh const &mesh = hexapod_meshes->lookup(mesh_name);
+auto on_drawable = [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+		Mesh const &mesh = main_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
 		Scene::Drawable &drawable = scene.drawables.back();
 
 		drawable.pipeline = lit_color_texture_program_pipeline;
 
-		drawable.pipeline.vao = hexapod_meshes_for_lit_color_texture_program;
+		drawable.pipeline.vao = main_meshes_for_lit_color_texture_program;
 		drawable.pipeline.type = mesh.type;
 		drawable.pipeline.start = mesh.start;
 		drawable.pipeline.count = mesh.count;
+};
 
-	});
+Load< Scene > main_scene(LoadTagDefault, []() -> Scene const * {
+	return new Scene(data_path("main.scene"), on_drawable);
 });
 
-Load< Sound::Sample > dusty_floor_sample(LoadTagDefault, []() -> Sound::Sample const * {
-	return new Sound::Sample(data_path("dusty-floor.opus"));
-});
+std::array<Load< Sound::Sample >, 3> spawn_sounds = {
+	Load< Sound::Sample >(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/left.opus"));
+	}), 
+	Load< Sound::Sample >(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/mid.opus"));
+	}),
+	Load< Sound::Sample >(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/right.opus"));
+	})
+};
+std::array<Load< Sound::Sample >, 3> spawn_begin_sounds = {
+	Load< Sound::Sample > (LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/left_begin.opus"));
+	}),
+	Load< Sound::Sample >(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/mid_begin.opus"));
+	}),
+	Load< Sound::Sample >(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/right_begin.opus"));
+	})
+};
 
-PlayMode::PlayMode() : scene(*hexapod_scene) {
-	//get pointers to leg for convenience:
+PlayMode::PlayMode() : 
+		scene(*main_scene),
+		carrot_paths{
+			CarrotPath(glm::vec3(), glm::vec3()),  // left CarrotPath
+			CarrotPath(glm::vec3(), glm::vec3()),  // middle CarrotPath
+			CarrotPath(glm::vec3(), glm::vec3())   // right CarrotPath
+		} 
+{
+	// reserve enough space for carrots
+	in_action_carrots.reserve(max_carrots);
+	idle_carrots.reserve(max_carrots);
+
 	for (auto &transform : scene.transforms) {
-		if (transform.name == "Hip.FL") hip = &transform;
-		else if (transform.name == "UpperLeg.FL") upper_leg = &transform;
-		else if (transform.name == "LowerLeg.FL") lower_leg = &transform;
+		// get pointer to carrot
+		if (transform.name.substr(0, 7) == "CarrotP") {
+			idle_carrots.emplace_back(Carrot{&transform});
+		}
+		// get pointer to hamster
+		else if (transform.name == "Hamster") {
+			hamster = &transform;
+		}
+		// get pointer to spawn points and lose points
+		else if (transform.name == "SpawnLeft") {
+			carrot_paths[0].start_pos = transform.position;
+		}
+		else if (transform.name == "LoseLeft") {
+			carrot_paths[0].end_pos = transform.position;
+		}
+		else if (transform.name == "SpawnMiddle") {
+			carrot_paths[1].start_pos = transform.position;
+		}
+		else if (transform.name == "LoseMiddle") {
+			carrot_paths[1].end_pos = transform.position;
+		}
+		else if (transform.name == "SpawnRight") {
+			carrot_paths[2].start_pos = transform.position;
+		}
+		else if (transform.name == "LoseRight") {
+			carrot_paths[2].end_pos = transform.position;
+		}
 	}
-	if (hip == nullptr) throw std::runtime_error("Hip not found.");
-	if (upper_leg == nullptr) throw std::runtime_error("Upper leg not found.");
-	if (lower_leg == nullptr) throw std::runtime_error("Lower leg not found.");
 
-	hip_base_rotation = hip->rotation;
-	upper_leg_base_rotation = upper_leg->rotation;
-	lower_leg_base_rotation = lower_leg->rotation;
+	// check that all needed transforms are imported correctly
+	if (hamster == nullptr) throw std::runtime_error("Hamster not found.");
+	if (idle_carrots.size() != 24) throw std::runtime_error("Base carrot not found.");
+	std::string path_names[3] = {"left", "middle", "right"};
+	for (uint8_t i = 0; i < carrot_paths.size(); ++i) {
+		if (carrot_paths[i].start_pos == glm::vec3(0) || carrot_paths[i].end_pos == glm::vec3(0)) {
+			throw std::runtime_error("The " + path_names[i] + " path coordinates not complete.");
+		}
+		// set the end position z to same as start z, z dragged down in the scene to prevent rendering:
+		carrot_paths[i].end_pos.z = carrot_paths[i].start_pos.z;
+	}
+
+	//cache hamster location
+	hamster_pos = hamster->position;
+
+	//precompute hamster rotations
+	hamster_rotations[2] = glm::angleAxis(
+		glm::radians(45.0f),
+		glm::vec3(0.0f, 0.0f, 1.0f)
+	);
+
+	hamster_rotations[0] = glm::angleAxis(
+		glm::radians(-45.0f),
+		glm::vec3(0.0f, 0.0f, 1.0f)
+	);
+
+	hamster->rotation = hamster_rotations[0];
 
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
 
-	//start music loop playing:
-	// (note: position will be over-ridden in update())
-	leg_tip_loop = Sound::loop_3D(*dusty_floor_sample, 1.0f, get_leg_tip_position(), 10.0f);
+	// set sound locations
+	for (uint8_t i = 0; i < carrot_paths.size(); ++i) {
+		sound_locations[i] = carrot_paths[i].end_pos;
+		sound_locations[i].z = camera->transform->position.z;
+	}
+
+	{ //update listener to camera position:
+		//moved to initialization since camera is static
+		glm::mat4x3 frame = camera->transform->make_local_to_parent();
+		glm::vec3 frame_right = frame[0];
+		glm::vec3 frame_at = frame[3];
+		Sound::listener.set_position_right(frame_at, frame_right, 1.0f / 60.0f);
+	}
 }
 
 PlayMode::~PlayMode() {
@@ -104,24 +189,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.pressed = false;
 			return true;
 		}
-	} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
-		if (SDL_GetRelativeMouseMode() == SDL_FALSE) {
-			SDL_SetRelativeMouseMode(SDL_TRUE);
-			return true;
-		}
-	} else if (evt.type == SDL_MOUSEMOTION) {
-		if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
-			glm::vec2 motion = glm::vec2(
-				evt.motion.xrel / float(window_size.y),
-				-evt.motion.yrel / float(window_size.y)
-			);
-			camera->transform->rotation = glm::normalize(
-				camera->transform->rotation
-				* glm::angleAxis(-motion.x * camera->fovy, glm::vec3(0.0f, 1.0f, 0.0f))
-				* glm::angleAxis(motion.y * camera->fovy, glm::vec3(1.0f, 0.0f, 0.0f))
-			);
-			return true;
-		}
 	}
 
 	return false;
@@ -129,54 +196,36 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 
 void PlayMode::update(float elapsed) {
 
-	//slowly rotates through [0,1):
-	wobble += elapsed / 10.0f;
-	wobble -= std::floor(wobble);
-
-	hip->rotation = hip_base_rotation * glm::angleAxis(
-		glm::radians(5.0f * std::sin(wobble * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 1.0f, 0.0f)
-	);
-	upper_leg->rotation = upper_leg_base_rotation * glm::angleAxis(
-		glm::radians(7.0f * std::sin(wobble * 2.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-	lower_leg->rotation = lower_leg_base_rotation * glm::angleAxis(
-		glm::radians(10.0f * std::sin(wobble * 3.0f * 2.0f * float(M_PI))),
-		glm::vec3(0.0f, 0.0f, 1.0f)
-	);
-
-	//move sound to follow leg tip position:
-	leg_tip_loop->set_position(get_leg_tip_position(), 1.0f / 60.0f);
-
-	//move camera:
-	{
-
-		//combine inputs into a move:
-		constexpr float PlayerSpeed = 30.0f;
-		glm::vec2 move = glm::vec2(0.0f);
-		if (left.pressed && !right.pressed) move.x =-1.0f;
-		if (!left.pressed && right.pressed) move.x = 1.0f;
-		if (down.pressed && !up.pressed) move.y =-1.0f;
-		if (!down.pressed && up.pressed) move.y = 1.0f;
-
-		//make it so that moving diagonally doesn't go faster:
-		if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
-
-		glm::mat4x3 frame = camera->transform->make_local_to_parent();
-		glm::vec3 frame_right = frame[0];
-		//glm::vec3 up = frame[1];
-		glm::vec3 frame_forward = -frame[2];
-
-		camera->transform->position += move.x * frame_right + move.y * frame_forward;
+	spawn_interval += elapsed;
+	if (spawn_interval >= 1,0f) {
+		spawn_interval -= 1.0f;
+		std::cout<<"Camera Pos:" <<camera->transform->position.x << ", " << camera->transform->position.y << ", "<<camera->transform->position.z <<std::endl;
+		std::cout<<"sound Pos:" <<sound_locations[index].x << ", " << sound_locations[index].y << ", "<<sound_locations[index].z <<std::endl;
+		Sound::play_3D(*(spawn_sounds[index]), 1.0f, sound_locations[index], 2000.0f);
+		index = (index + 1) %3;
 	}
 
-	{ //update listener to camera position:
-		glm::mat4x3 frame = camera->transform->make_local_to_parent();
-		glm::vec3 frame_right = frame[0];
-		glm::vec3 frame_at = frame[3];
-		Sound::listener.set_position_right(frame_at, frame_right, 1.0f / 60.0f);
-	}
+	// //move camera:
+	// {
+
+	// 	//combine inputs into a move:
+	// 	constexpr float PlayerSpeed = 30.0f;
+	// 	glm::vec2 move = glm::vec2(0.0f);
+	// 	if (left.pressed && !right.pressed) move.x =-1.0f;
+	// 	if (!left.pressed && right.pressed) move.x = 1.0f;
+	// 	if (down.pressed && !up.pressed) move.y =-1.0f;
+	// 	if (!down.pressed && up.pressed) move.y = 1.0f;
+
+	// 	//make it so that moving diagonally doesn't go faster:
+	// 	if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
+
+	// 	glm::mat4x3 frame = camera->transform->make_local_to_parent();
+	// 	glm::vec3 frame_right = frame[0];
+	// 	//glm::vec3 up = frame[1];
+	// 	glm::vec3 frame_forward = -frame[2];
+
+	// 	camera->transform->position += move.x * frame_right + move.y * frame_forward;
+	// }
 
 	//reset button press counters:
 	left.downs = 0;
@@ -228,9 +277,4 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
 	}
 	GL_ERRORS();
-}
-
-glm::vec3 PlayMode::get_leg_tip_position() {
-	//the vertex position here was read from the model in blender:
-	return lower_leg->make_local_to_world() * glm::vec4(-1.26137f, -11.861f, 0.0f, 1.0f);
 }
