@@ -60,6 +60,11 @@ std::array<Load< Sound::Sample >, 3> spawn_begin_sounds = {
 	})
 };
 
+// set up pseudo random number generator:
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_int_distribution<int>index_dist(0, 2);
+
 PlayMode::PlayMode() : 
 		scene(*main_scene),
 		carrot_paths{
@@ -73,7 +78,7 @@ PlayMode::PlayMode() :
 	for (auto &transform : scene.transforms) {
 		// get pointer to carrot
 		if (transform.name.substr(0, 7) == "CarrotP") {
-			idle_carrots.push(Carrot{&transform});
+			idle_carrots.push_back(Carrot{&transform});
 		}
 		// get pointer to hamster
 		else if (transform.name == "Hamster") {
@@ -114,7 +119,9 @@ PlayMode::PlayMode() :
 	}
 
 	//cache hamster location
-	hamster_pos = hamster->position;
+	hamster_default_pos = hamster->position;
+	//cache carrot location
+	carrot_default_pos = idle_carrots.front().transform->position;
 
 	{//precompute hamster rotations
 		hamster_rotations[0] = glm::angleAxis(
@@ -164,10 +171,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			right.downs += 1;
 			right.pressed = true;
 			return true;
-		} else if (evt.key.keysym.sym == SDLK_w) {
-			up.downs += 1;
-			up.pressed = true;
-			return true;
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.downs += 1;
 			down.pressed = true;
@@ -180,9 +183,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_d) {
 			right.pressed = false;
 			return true;
-		} else if (evt.key.keysym.sym == SDLK_w) {
-			up.pressed = false;
-			return true;
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.pressed = false;
 			return true;
@@ -193,24 +193,118 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
-
-	since_carrot_spawned += elapsed;
-	if (since_carrot_spawned >= carrot_spawn_timer && idle_carrots.empty()) {
-		since_carrot_spawned = std::fmod(since_carrot_spawned, carrot_spawn_timer);
-		Carrot new_carrot = idle_carrots.front();
-		idle_carrots.pop();
-		in_action_carrots.push(new_carrot);
-
-		Sound::play_3D(*(spawn_sounds[index]), 1.0f, sound_locations[index], 2000.0f);
-		index = (index + 1) %3;
+	{// button press cool down
+		if (since_last_button_press != 0.0f) {
+			since_last_button_press += elapsed;
+			if (since_last_button_press >= button_press_cooldown) {
+				since_last_button_press = 0.0f;
+			}
+		}
 	}
 
+	{// update caught timer
+		if (since_caught != 0.0f) {
+			since_caught += elapsed;
+			if (since_caught > max_caught_time) {
+				since_caught = 0.0f;
+				caught_carrot->transform->position = carrot_default_pos;
+				idle_carrots.push_back(*caught_carrot);
+				in_action_carrots.erase(caught_carrot);
+			}
+		}
+	}
 
+	{// hamster eats carrots
+		if (since_last_button_press == 0.0f) {
+			since_last_button_press = 0.001f;
+			uint8_t sum = uint8_t(left.pressed) +  uint8_t(right.pressed) + uint8_t(down.pressed);
+			if (sum == 1) {
+				uint8_t hamster_path_index = uint8_t(left.pressed) * 0 +  uint8_t(right.pressed) * 2 + uint8_t(down.pressed) * 1;
+				for (auto carrot_it = in_action_carrots.begin(); carrot_it != in_action_carrots.end(); ++ carrot_it) {
+					if (carrot_it->on_screen && carrot_it->path_index == hamster_path_index && !carrot_it->caught) {
+						if (since_caught != 0.0f) { // get rid of the previous caught carrot
+							since_caught = 0.0f;
+							caught_carrot->transform->position = carrot_default_pos;
+							idle_carrots.push_back(*caught_carrot);
+							in_action_carrots.erase(caught_carrot);
+						}
+
+						caught_carrot = carrot_it;
+						carrot_it->caught = true;
+						hamster->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * (carrot_it->t + .1f);
+						hamster->rotation = hamster_rotations[hamster_path_index];
+						since_caught = 0.01f;
+						break;
+					}
+				}
+				if (since_caught == 0.0f) { //did not have anything to catch
+					hamster->position = carrot_paths[hamster_path_index].end_pos;
+					hamster->rotation = hamster_rotations[hamster_path_index];
+				}
+
+			}
+			else if (since_caught == 0.0f) {
+				hamster->position = hamster_default_pos;
+				hamster->rotation = hamster_rotations[1];
+			}
+		}
+	}
+
+	// move carrots along
+	for (auto carrot_it = in_action_carrots.begin(); carrot_it != in_action_carrots.end(); ) {
+		if (carrot_it->caught) {
+			carrot_it++;
+			continue;
+		}
+		carrot_speed = std::min(carrot_speed + 0.05f, 2.0f);
+		carrot_it->t += elapsed*carrot_speed;
+		if (carrot_it->t >= 1.0f) {
+			// TODO: player loses
+			carrot_it->transform->position = carrot_default_pos;
+			idle_carrots.push_back(*carrot_it);
+			carrot_it = in_action_carrots.erase(carrot_it);
+			continue;
+		}
+		else if (!carrot_it->on_screen && ((carrot_it->path_index == 1 && carrot_it->t >= .03f) || (carrot_it->path_index != 1 && carrot_it->t >= .08f))) {
+			carrot_it->on_screen = true;
+			if (tutorial)
+				Sound::play_3D(*(spawn_begin_sounds[carrot_it->path_index]), 1.0f, sound_locations[carrot_it->path_index], 2000.0f);
+			else
+				Sound::play_3D(*(spawn_sounds[carrot_it->path_index]), 1.0f, sound_locations[carrot_it->path_index], 2000.0f);
+		}
+		// move along path
+		carrot_it->transform->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * carrot_it->t;
+		carrot_it++;
+    }
+	if (!tutorial) // ramp up spawn speed
+		carrot_spawn_timer = std::max(carrot_spawn_timer-elapsed*0.05f, 0.5f);
+
+	{//spawn carrots
+		since_carrot_spawned += elapsed;
+		if (since_carrot_spawned >= carrot_spawn_timer && !idle_carrots.empty()) {
+			
+			since_carrot_spawned = std::fmod(since_carrot_spawned, carrot_spawn_timer);
+			Carrot new_carrot = idle_carrots.front();
+			idle_carrots.pop_front();
+			//reset carrot
+			if (tutorial) {
+				new_carrot.path_index = tutorial_carrot_count % 3;
+				tutorial_carrot_count++;
+				if (tutorial_carrot_count == tutorial_carrot_max)
+					tutorial = false;
+			}
+			else
+				new_carrot.path_index = uint8_t(index_dist(gen));
+			new_carrot.on_screen = false;
+			new_carrot.caught = false;
+			new_carrot.t = 0.0f;
+			in_action_carrots.push_back(new_carrot);
+		}
+	}
 
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
-	up.downs = 0;
 	down.downs = 0;
 }
 
