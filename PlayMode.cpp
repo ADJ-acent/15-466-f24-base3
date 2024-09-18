@@ -60,6 +60,22 @@ std::array<Load< Sound::Sample >, 3> spawn_begin_sounds = {
 	})
 };
 
+Load< Sound::Sample > caught_carrot_sound(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/caught.opus"));
+});
+
+Load< Sound::Sample > take_damage_sound(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/hurt.opus"));
+});
+
+Load< Sound::Sample > lose_sound(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/defeat.opus"));
+});
+
+Load< Sound::Sample > morning_dew_bgm(LoadTagDefault, []() -> Sound::Sample const * {
+		return new Sound::Sample(data_path("audio/morning_dew.opus"));
+});
+
 // set up pseudo random number generator:
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -152,6 +168,8 @@ PlayMode::PlayMode() :
 		glm::vec3 frame_at = frame[3];
 		Sound::listener.set_position_right(frame_at, frame_right, 1.0f / 60.0f);
 	}
+
+	Sound::loop(*morning_dew_bgm,0.1f);
 }
 
 PlayMode::~PlayMode() {
@@ -193,14 +211,6 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
-	{// button press cool down
-		if (since_last_button_press != 0.0f) {
-			since_last_button_press += elapsed;
-			if (since_last_button_press >= button_press_cooldown) {
-				since_last_button_press = 0.0f;
-			}
-		}
-	}
 
 	{// update caught timer
 		if (since_caught != 0.0f) {
@@ -211,43 +221,47 @@ void PlayMode::update(float elapsed) {
 				idle_carrots.push_back(*caught_carrot);
 				in_action_carrots.erase(caught_carrot);
 			}
+			else { // carrot arrest animation
+				caught_carrot->transform->scale = glm::vec3((.5f - since_caught) * 2.0f);
+				caught_carrot->transform->position.z += elapsed * 10.0f;
+			}
 		}
 	}
 
 	{// hamster eats carrots
-		if (since_last_button_press == 0.0f) {
-			since_last_button_press = 0.001f;
-			uint8_t sum = uint8_t(left.pressed) +  uint8_t(right.pressed) + uint8_t(down.pressed);
-			if (sum == 1) {
-				uint8_t hamster_path_index = uint8_t(left.pressed) * 0 +  uint8_t(right.pressed) * 2 + uint8_t(down.pressed) * 1;
-				for (auto carrot_it = in_action_carrots.begin(); carrot_it != in_action_carrots.end(); ++ carrot_it) {
-					if (carrot_it->on_screen && carrot_it->path_index == hamster_path_index && !carrot_it->caught) {
-						if (since_caught != 0.0f) { // get rid of the previous caught carrot
-							since_caught = 0.0f;
-							caught_carrot->transform->position = carrot_default_pos;
-							idle_carrots.push_back(*caught_carrot);
-							in_action_carrots.erase(caught_carrot);
-						}
-
-						caught_carrot = carrot_it;
-						carrot_it->caught = true;
-						hamster->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * (carrot_it->t + .1f);
-						hamster->rotation = hamster_rotations[hamster_path_index];
-						since_caught = 0.01f;
-						break;
+		uint8_t sum = uint8_t(left.pressed) +  uint8_t(right.pressed) + uint8_t(down.pressed);
+		if (sum == 1) { // only one lane at a time
+			uint8_t hamster_path_index = uint8_t(left.pressed) * 0 +  uint8_t(right.pressed) * 2 + uint8_t(down.pressed) * 1;
+			for (auto carrot_it = in_action_carrots.begin(); carrot_it != in_action_carrots.end(); ++ carrot_it) {
+				if (carrot_it->on_screen && carrot_it->path_index == hamster_path_index && !carrot_it->caught) {
+					if (since_caught != 0.0f) { // get rid of the previous caught carrot
+						since_caught = 0.0f;
+						caught_carrot->transform->position = carrot_default_pos;
+						idle_carrots.push_back(*caught_carrot);
+						in_action_carrots.erase(caught_carrot);
 					}
-				}
-				if (since_caught == 0.0f) { //did not have anything to catch
-					hamster->position = carrot_paths[hamster_path_index].end_pos;
-					hamster->rotation = hamster_rotations[hamster_path_index];
-				}
 
+					caught_carrot = carrot_it;
+					carrot_it->caught = true;
+					hamster->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * (carrot_it->t + .1f);
+					hamster->rotation = hamster_rotations[hamster_path_index];
+					since_caught = 0.01f;
+					score++;
+					Sound::play_3D(*caught_carrot_sound, 1.0f, carrot_it->transform->position, 200.0f);
+					break;
+				}
 			}
-			else if (since_caught == 0.0f) {
-				hamster->position = hamster_default_pos;
-				hamster->rotation = hamster_rotations[1];
+			if (since_caught == 0.0f) { //did not have anything to catch
+				hamster->position = carrot_paths[hamster_path_index].end_pos;
+				hamster->rotation = hamster_rotations[hamster_path_index];
 			}
+
 		}
+		else if (since_caught == 0.0f) {
+			hamster->position = hamster_default_pos;
+			hamster->rotation = hamster_rotations[1];
+		}
+		
 	}
 
 	// move carrots along
@@ -259,7 +273,12 @@ void PlayMode::update(float elapsed) {
 		carrot_speed = std::min(carrot_speed + 0.05f, 1.5f);
 		carrot_it->t += elapsed*carrot_speed;
 		if (carrot_it->t >= 1.0f) {
-			// TODO: player loses
+			// player loses health
+			health--;
+			if (health > 0)
+				Sound::play_3D(*take_damage_sound, 1.0f, carrot_it->transform->position, 200.0f);
+			else
+				Sound::play(*lose_sound, 1.0f);
 			carrot_it->transform->position = carrot_default_pos;
 			idle_carrots.push_back(*carrot_it);
 			carrot_it = in_action_carrots.erase(carrot_it);
@@ -302,6 +321,7 @@ void PlayMode::update(float elapsed) {
 			new_carrot.on_screen = false;
 			new_carrot.caught = false;
 			new_carrot.t = 0.0f;
+			new_carrot.transform->scale = glm::vec3(1.0f);
 			in_action_carrots.push_back(new_carrot);
 		}
 	};
@@ -360,15 +380,39 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		));
 
 		constexpr float H = 0.09f;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
+		lines.draw_text("Use A,S,D to prevent carrots from freeing their comrads",
 			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("Mouse motion rotates camera; WASD moves; escape ungrabs mouse",
+		lines.draw_text("Use A,S,D to prevent carrots from freeing their comrads",
 			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+
+		lines.draw_text("Score: " + std::to_string(score),
+			glm::vec3(-aspect + 0.1f * H, 1.0 - H, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		lines.draw_text("Score: " + std::to_string(score),
+			glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H + ofs, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+
+		//health
+		std::string health_text = "x x x";
+		if (health == 3) health_text = "o o o";
+		else if (health == 2) health_text = "o o x";
+		else if (health == 1) health_text = "o x x";
+		lines.draw_text("health: " + health_text,
+			glm::vec3(-aspect + 0.1f * H, 1.0 - H*3.0f, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		lines.draw_text("health: " + health_text,
+			glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H*3.0f + ofs, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+
 	}
 	GL_ERRORS();
 }

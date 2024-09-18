@@ -64,17 +64,19 @@ struct PlayMode : Mode {
 	float since_caught = 0.0f;
 	const float max_caught_time = .5f;
 
-	float since_last_button_press = 0.0f;
-	const float button_press_cooldown = .05f;
-
 	//sound locations
 	std::array<glm::vec3, 3> sound_locations;
 	
 	//camera:
 	Scene::Camera *camera = nullptr;
 
-	bool tutorial = false;
+	//tutorial:
+	bool tutorial = true;
 	uint8_t tutorial_carrot_count = 0;
 	const uint8_t tutorial_carrot_max = 10;
+
+	//gameplay stats:
+	int score = 0;
+	int health = 3;
 
 };
