@@ -24,7 +24,7 @@ struct PlayMode : Mode {
 	struct Button {
 		uint8_t downs = 0;
 		uint8_t pressed = 0;
-	} left, right, down;
+	} left, right, down, restart;
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
@@ -78,5 +78,9 @@ struct PlayMode : Mode {
 	//gameplay stats:
 	int score = 0;
 	int health = 3;
+	bool game_end = false;
+
+	//background carrot piles:
+	std::array<Scene::Transform* ,4> carrot_pile_transforms = {nullptr,nullptr,nullptr,nullptr};
 
 };

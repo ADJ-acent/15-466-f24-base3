@@ -119,6 +119,22 @@ PlayMode::PlayMode() :
 		else if (transform.name == "LoseRight") {
 			carrot_paths[2].end_pos = transform.position;
 		}
+		else if (transform.name == "CarrotCluster0") {
+			carrot_pile_transforms[0] = &transform;
+			transform.enabled = false; // disable rendering at the start
+		}
+		else if (transform.name == "CarrotCluster1") {
+			carrot_pile_transforms[1] = &transform;
+			transform.enabled = false;
+		}
+		else if (transform.name == "CarrotCluster2") {
+			carrot_pile_transforms[2] = &transform;
+			transform.enabled = false;
+		}
+		else if (transform.name == "CarrotCluster3") {
+			carrot_pile_transforms[3] = &transform;
+			transform.enabled = false;
+		}
 	}
 
 	{// check that all needed transforms are imported correctly
@@ -131,6 +147,11 @@ PlayMode::PlayMode() :
 			}
 			// set the end position z to same as start z, z dragged down in the scene to prevent rendering:
 			carrot_paths[i].end_pos.z = carrot_paths[i].start_pos.z;
+		}
+		for (uint8_t i = 0; i < carrot_pile_transforms.size(); ++i) {
+			if (carrot_pile_transforms[i] == nullptr) {
+				throw std::runtime_error("Carrot Pile " + std::to_string(i) + " not found");
+			}
 		}
 	}
 
@@ -193,6 +214,9 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.downs += 1;
 			down.pressed = true;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			restart.downs +=1;
+			restart.pressed = true;
 		}
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
@@ -204,6 +228,9 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.pressed = false;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			restart.pressed = false;
+			return true;
 		}
 	}
 
@@ -211,6 +238,34 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
+
+	if (restart.pressed) {
+		game_end = false;
+		since_carrot_spawned = 0.0f;
+		carrot_spawn_timer = 2.0f;
+		carrot_speed = .5f;
+		since_caught = 0.0f;
+
+		//reset tutorial
+		tutorial = true;
+		tutorial_carrot_count = 0;
+		
+		score = 0;
+		health = 3;
+
+		hamster->position = hamster_default_pos;
+		hamster->rotation = hamster_rotations[1];
+
+		for (auto carrot_it = in_action_carrots.begin(); carrot_it != in_action_carrots.end(); ) {
+			carrot_it->transform->position = carrot_default_pos;
+			idle_carrots.push_back(*carrot_it);
+			carrot_it = in_action_carrots.erase(carrot_it);
+			continue;
+		}
+		
+	}
+
+	if (game_end) return;
 
 	{// update caught timer
 		if (since_caught != 0.0f) {
@@ -247,6 +302,18 @@ void PlayMode::update(float elapsed) {
 					hamster->rotation = hamster_rotations[hamster_path_index];
 					since_caught = 0.01f;
 					score++;
+					
+					{// increase height of the carrot pile when score is high enough
+						if (score > 150) {
+							carrot_pile_transforms[3]->enabled = true;
+						} else if (score > 100) {
+							carrot_pile_transforms[2]->enabled = true;
+						} else if (score > 50) {
+							carrot_pile_transforms[1]->enabled = true;
+						} else if (score > 25) {
+							carrot_pile_transforms[0]->enabled = true;
+						} 
+					}
 					Sound::play_3D(*caught_carrot_sound, 1.0f, carrot_it->transform->position, 200.0f);
 					break;
 				}
@@ -346,6 +413,7 @@ void PlayMode::update(float elapsed) {
 	left.downs = 0;
 	right.downs = 0;
 	down.downs = 0;
+	restart.downs = 0;
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {
@@ -359,6 +427,49 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	glUniform3fv(lit_color_texture_program->LIGHT_DIRECTION_vec3, 1, glm::value_ptr(glm::vec3(0.0f, 0.0f,-1.0f)));
 	glUniform3fv(lit_color_texture_program->LIGHT_ENERGY_vec3, 1, glm::value_ptr(glm::vec3(1.0f, 1.0f, 0.95f)));
 	glUseProgram(0);
+
+	{//let player know they are dead
+		float aspect = float(drawable_size.x) / float(drawable_size.y);
+		DrawLines lines(glm::mat4(
+			1.0f / aspect, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, 1.0f
+		));
+		constexpr float H = 0.09f;
+		if (game_end) {
+			glClearColor(0.6235f, .7569f, .561f, 1.0f); // green like the grass
+			float ofs = 6.0f / drawable_size.y;
+			lines.draw_text("CARROTS ESCAPED",
+				glm::vec3(-float(drawable_size.x)*H / 150.0f, 0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0xec, 0x76, 0x09, 0x00));
+			lines.draw_text("CARROTS ESCAPED",
+				glm::vec3(-float(drawable_size.x)*H / 150.0f + ofs, ofs +0.35f, 0.0),
+				glm::vec3(H*3, 0.0f, 0.0f), glm::vec3(0.0f, H*3, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Press 'r' to restart",
+				glm::vec3(-float(drawable_size.x)*H / 225.0f, -0.5f, 0.0),
+				glm::vec3(H*2.0f, 0.0f, 0.0f), glm::vec3(0.0f, H*2.0f, 0.0f),
+				glm::u8vec4(0xec, 0x76, 0x09, 0x00));
+			lines.draw_text("Press 'r' to restart",
+				glm::vec3(-float(drawable_size.x)*H  / 225.0f+ofs, -.5f, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2.0f, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-float(drawable_size.x)*H / 350.0f, -.25f, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2, 0.0f),
+				glm::u8vec4(0xec, 0x76, 0x09, 0x00));
+			lines.draw_text("Score: " + std::to_string(score),
+				glm::vec3(-float(drawable_size.x)*H / 350.0f + ofs, -0.25f + ofs, 0.0),
+				glm::vec3(H*2, 0.0f, 0.0f), glm::vec3(0.0f, H*2, 0.0f),
+				glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			glClearDepth(1.0f); 
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			GL_ERRORS(); //print any errors produced by this setup code
+			return;
+		}
+	}
 
 	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 	glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
@@ -383,12 +494,12 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		lines.draw_text("Use A,S,D to prevent carrots from freeing their comrads",
 			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
 		float ofs = 2.0f / drawable_size.y;
 		lines.draw_text("Use A,S,D to prevent carrots from freeing their comrads",
 			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 
 		lines.draw_text("Score: " + std::to_string(score),
 			glm::vec3(-aspect + 0.1f * H, 1.0 - H, 0.0),
@@ -404,11 +515,14 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 		if (health == 3) health_text = "o o o";
 		else if (health == 2) health_text = "o o x";
 		else if (health == 1) health_text = "o x x";
-		lines.draw_text("health: " + health_text,
+		else {
+			game_end = true;
+		}
+		lines.draw_text("Cage health: " + health_text,
 			glm::vec3(-aspect + 0.1f * H, 1.0 - H*3.0f, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
-		lines.draw_text("health: " + health_text,
+		lines.draw_text("Cage health: " + health_text,
 			glm::vec3(-aspect + 0.1f * H + ofs, 1.0 - H*3.0f + ofs, 0.0),
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
