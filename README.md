@@ -1,7 +1,7 @@
 # Moth to a Flame, Carrot to a Cage
+![Cover](cover.png)
 
 Author: Weiwen "Andy" Jiang
-![Cover](cover.png)
 
 Design: Hamster is tired of chasing carrots around, its time to bait them in... Press the corresponding button when hearing the sound cue to capture the incoming carrots! Don't let them reach the end or else the bait might run free.
 
