@@ -135,6 +135,11 @@ PlayMode::PlayMode() :
 			carrot_pile_transforms[3] = &transform;
 			transform.enabled = false;
 		}
+		else if (transform.name == "MenuCamLocation") {
+			menu_pos = transform.position;
+			menu_quat = transform.rotation;
+			transform.enabled = false;
+		}
 	}
 
 	{// check that all needed transforms are imported correctly
@@ -175,6 +180,10 @@ PlayMode::PlayMode() :
 	//get pointer to camera for convenience:
 	if (scene.cameras.size() != 1) throw std::runtime_error("Expecting scene to have exactly one camera, but it has " + std::to_string(scene.cameras.size()));
 	camera = &scene.cameras.front();
+	in_game_pos = camera->transform->position;
+	in_game_quat = camera->transform->rotation;
+	camera->transform->position = menu_pos;
+	camera->transform->rotation = menu_quat;
 
 	// set sound locations
 	for (uint8_t i = 0; i < carrot_paths.size(); ++i) {
@@ -217,7 +226,10 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_r) {
 			restart.downs +=1;
 			restart.pressed = true;
-		}
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			start.downs +=1;
+			start.pressed = true;
+		} 
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
 			left.pressed = false;
@@ -231,6 +243,9 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_r) {
 			restart.pressed = false;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			start.pressed = false;
+			return true;
 		}
 	}
 
@@ -238,6 +253,18 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
+	
+	if (menu && start.pressed) {
+		menu = false;
+		camera->transform->position = in_game_pos;
+		camera->transform->rotation = in_game_quat;
+	}
+
+	if (menu) {
+		menu_timer += elapsed / 5.0f;
+		menu_timer -= std::floor(menu_timer);
+		return;
+	}
 
 	if (restart.pressed) {
 		game_end = false;
@@ -480,7 +507,7 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 
 	scene.draw(*camera);
 
-	{ //use DrawLines to overlay some text:
+	if (!menu) { //use DrawLines to overlay some text:
 		glDisable(GL_DEPTH_TEST);
 		float aspect = float(drawable_size.x) / float(drawable_size.y);
 		DrawLines lines(glm::mat4(
@@ -527,6 +554,49 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
 			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
 
+	}
+	else {
+		glDisable(GL_DEPTH_TEST);
+		float aspect = float(drawable_size.x) / float(drawable_size.y);
+		DrawLines lines(glm::mat4(
+			1.0f / aspect, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, 1.0f
+		));
+
+		constexpr float H = 0.20f;
+		
+		lines.draw_text("     Moth to a Flame",
+			glm::vec3(-aspect + 0.1f * H, 1.0f - 7.0f * H, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		float ofs = 2.0f / drawable_size.y;
+		lines.draw_text("     Moth to a Flame ",
+			glm::vec3(-aspect + 0.1f * H + ofs, 1.0f - 7.0f * H + ofs, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+		lines.draw_text("         Carrot to a Cage",
+			glm::vec3(-aspect + 0.1f * H, 1.0f - 8.8f * H, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		lines.draw_text("         Carrot to a Cage",
+			glm::vec3(-aspect + 0.1f * H + ofs, 1.0f - 8.8f * H + ofs, 0.0),
+			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
+			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
+		
+		uint8_t color = uint8_t(int((std::sin(menu_timer*2.0f*float(M_PI)) + 1.0f) * 127.5f));
+		lines.draw_text("             Press space to start...",
+			glm::vec3(-aspect + 3.0f * H, 1.0f - 9.5f * H, 0.0),
+			glm::vec3(H/2.0f, 0.0f, 0.0f), glm::vec3(0.0f, H/2.0f, 0.0f),
+			glm::u8vec4(0xff-color, 0xff-color, 0xff-color, 0x00));
+		lines.draw_text("             Press space to start...",
+			glm::vec3(-aspect + 3.0f * H + ofs, 1.0f - 9.5f * H + ofs, 0.0),
+			glm::vec3(H/2.0f, 0.0f, 0.0f), glm::vec3(0.0f, H/2.0f, 0.0f),
+			glm::u8vec4(color, color, color, 0x00));
+		
+			
+		
 	}
 	GL_ERRORS();
 }
