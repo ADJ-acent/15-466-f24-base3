@@ -121,7 +121,7 @@ PlayMode::PlayMode() :
 		}
 		else if (transform.name == "CarrotCluster0") {
 			carrot_pile_transforms[0] = &transform;
-			transform.enabled = false; // disable rendering at the start
+			transform.enabled = true; // disable rendering at the start
 		}
 		else if (transform.name == "CarrotCluster1") {
 			carrot_pile_transforms[1] = &transform;
@@ -258,6 +258,9 @@ void PlayMode::update(float elapsed) {
 		menu = false;
 		camera->transform->position = in_game_pos;
 		camera->transform->rotation = in_game_quat;
+		for (uint8_t i = 0; i < carrot_pile_transforms.size(); ++i) {
+			carrot_pile_transforms[i]->enabled = false;
+		}
 	}
 
 	if (menu) {
@@ -289,7 +292,10 @@ void PlayMode::update(float elapsed) {
 			carrot_it = in_action_carrots.erase(carrot_it);
 			continue;
 		}
-		
+
+		for (uint8_t i = 0; i < carrot_pile_transforms.size(); ++i) {
+			carrot_pile_transforms[i]->enabled = false;
+		}
 	}
 
 	if (game_end) return;
@@ -380,10 +386,11 @@ void PlayMode::update(float elapsed) {
 		}
 		else if (!carrot_it->on_screen && ((carrot_it->path_index == 1 && carrot_it->t >= .03f) || (carrot_it->path_index != 1 && carrot_it->t >= .08f))) {
 			carrot_it->on_screen = true;
+			float audio_level = carrot_it->path_index == 1 ? 0.7f : 1.0f;
 			if (tutorial)
 				Sound::play_3D(*(spawn_begin_sounds[carrot_it->path_index]), 1.0f, sound_locations[carrot_it->path_index], 2000.0f);
 			else
-				Sound::play_3D(*(spawn_sounds[carrot_it->path_index]), 1.0f, sound_locations[carrot_it->path_index], 2000.0f);
+				Sound::play_3D(*(spawn_sounds[carrot_it->path_index]), audio_level, sound_locations[carrot_it->path_index], 2000.0f);
 		}
 		// move along path
 		carrot_it->transform->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * carrot_it->t;
