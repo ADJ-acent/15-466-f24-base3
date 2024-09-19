@@ -11,6 +11,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <random>
+#include <cmath>
 
 GLuint main_meshes_for_lit_color_texture_program = 0;
 Load< MeshBuffer > main_meshes(LoadTagDefault, []() -> MeshBuffer const * {
@@ -19,7 +20,8 @@ Load< MeshBuffer > main_meshes(LoadTagDefault, []() -> MeshBuffer const * {
 	return ret;
 });
 
-auto on_drawable = [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+Load< Scene > main_scene(LoadTagDefault, []() -> Scene const * {
+	return new Scene(data_path("main.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
 		Mesh const &mesh = main_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
@@ -31,10 +33,7 @@ auto on_drawable = [&](Scene &scene, Scene::Transform *transform, std::string co
 		drawable.pipeline.type = mesh.type;
 		drawable.pipeline.start = mesh.start;
 		drawable.pipeline.count = mesh.count;
-};
-
-Load< Scene > main_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("main.scene"), on_drawable);
+	});
 });
 
 std::array<Load< Sound::Sample >, 3> spawn_sounds = {
