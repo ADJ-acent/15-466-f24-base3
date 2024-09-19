@@ -394,8 +394,8 @@ void PlayMode::update(float elapsed) {
 		// move along path
 		carrot_it->transform->position = carrot_paths[carrot_it->path_index].start_pos + (carrot_paths[carrot_it->path_index].end_pos - carrot_paths[carrot_it->path_index].start_pos) * carrot_it->t;
 		// movement animation
-		carrot_it->transform->scale.z = std::sinf(carrot_it->t*20.0f)*0.25f + 1.0f;
-		float xy_scale = std::sinf(carrot_it->t*20.0f)*-0.25f + 1.0f;
+		carrot_it->transform->scale.z = std::sin(carrot_it->t*20.0f)*0.25f + 1.0f;
+		float xy_scale = std::sin(carrot_it->t*20.0f)*-0.25f + 1.0f;
 		carrot_it->transform->scale.x = xy_scale;
 		carrot_it->transform->scale.x = xy_scale;
 		carrot_it++;
