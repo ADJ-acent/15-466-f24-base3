@@ -21,7 +21,7 @@ Load< MeshBuffer > main_meshes(LoadTagDefault, []() -> MeshBuffer const * {
 });
 
 Load< Scene > main_scene(LoadTagDefault, []() -> Scene const * {
-	return new Scene(data_path("main.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
+	return new Scene(data_path("main.scene"), [](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
 		Mesh const &mesh = main_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
